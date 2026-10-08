@@ -1,0 +1,53 @@
+[project]
+name = "hello-lora"
+version = "0.1.0"
+description = "A reproducible LoRA image production line"
+readme = "README.md"
+authors = [
+    { name = "Takamiya-reborn", email = "2196733767@qq.com" }
+]
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "pillow",
+    "opencv-python-headless",
+    "polars",
+    "duckdb",
+    "imagehash",
+    "tqdm",
+    "safetensors",
+    "datasets",
+    "onnxruntime",
+    "huggingface-hub",
+    "kagglehub>=1.0.2",
+    "requests",
+]
+
+[project.scripts]
+hello-lora = "hello_lora:main"
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+inference = [
+    "torch",
+    "diffusers",
+    "transformers",
+    "accelerate",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+# Windows 的 PyPI torch 是 CPU 版，走官方 cu128 index；
+# Linux（PyPI 自带 CUDA）和 macOS（MPS）用 PyPI 默认源即可
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu128", marker = "platform_system == 'Windows'" },
+]
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"

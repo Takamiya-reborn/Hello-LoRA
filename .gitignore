@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Train
+assets/data/*
+!assets/data/.gitkeep
+assets/output/*
+!assets/output/.gitkeep
+assets/models/**
+!assets/models/**/
+!assets/models/**/*.gitkeep
