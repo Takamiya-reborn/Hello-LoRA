@@ -1,7 +1,10 @@
 """从 Danbooru 批量下载指定标签或艺术家的图片到 assets/data/（用法见 README）。
 
+- 独立可执行，无本地模块依赖（仅 requests / tqdm）
 - 自动翻页，目录内图片总数不超过 --limit（已有图片计入，只补差额）
 - 已存在的文件按 md5 命名直接跳过，可断点续传
+- 下载完成后按 API 给出的 md5 校验内容，不一致自动重下一次，仍失败则跳过
+- 429/5xx/连接错误由 urllib3 Retry 自动退避重试
 - 帖子元数据追加写入输出目录的 metadata.jsonl，供后续清洗阶段使用
 - 默认只下载静态图片（jpg/png/webp），--all-media 才包含动图和视频
 """
@@ -9,20 +12,25 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import time
 from pathlib import Path
 
 import requests
+from requests.adapters import HTTPAdapter
 from tqdm import tqdm
+from urllib3.util.retry import Retry
 
 API_BASE = "https://danbooru.donmai.us"
 PAGE_SIZE = 200  # API 单页上限
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
-# 匿名请求间隔，避免触发 429
+# 匿名请求间隔，避免触发限流
 API_DELAY = 1.0
 DOWNLOAD_DELAY = 0.3
+# 单次下载 md5 校验失败后的重试次数
+DOWNLOAD_ATTEMPTS = 2
 
 RAW_DIR = Path(__file__).resolve().parent.parent / "assets" / "data"
 
@@ -79,39 +87,74 @@ def build_tags(args: argparse.Namespace) -> list[str]:
     return tags
 
 
+def build_session(
+    proxy: str | None = None, auth: tuple[str, str] | None = None
+) -> requests.Session:
+    """构建带代理 / 认证 / 自动重试的会话。
+
+    429/5xx/连接错误交给 urllib3 Retry 退避重试，Retry-After 头（含
+    HTTP-date 格式）由其解析并遵守，无需手动处理限流。
+    """
+    session = requests.Session()
+    if auth:
+        session.auth = auth
+    if proxy:
+        session.proxies = {"http": proxy, "https": proxy}
+    session.headers["User-Agent"] = "Hello-LoRA-dataset-collector/0.1"
+    retry = Retry(
+        total=5,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
 def fetch_page(session: requests.Session, tags: list[str], page: int) -> list[dict]:
+    """GET 一个 API 页面并返回 JSON；限流 / 瞬时错误由 Retry 适配器处理。"""
     resp = session.get(
         f"{API_BASE}/posts.json",
         params={"tags": " ".join(tags), "limit": PAGE_SIZE, "page": page},
         timeout=30,
     )
-    if resp.status_code == 429:
-        retry_after = int(resp.headers.get("Retry-After", "30"))
-        tqdm.write(f"触发限流，等待 {retry_after} 秒后重试 ...")
-        time.sleep(retry_after)
-        return fetch_page(session, tags, page)
     resp.raise_for_status()
     time.sleep(API_DELAY)
     return resp.json()
 
 
-def download_file(session: requests.Session, post: dict, dest: Path) -> bool:
-    """下载单个文件，已存在则跳过。返回是否实际下载。"""
+def download_file(
+    session: requests.Session, url: str, dest: Path, expected_md5: str | None = None
+) -> bool:
+    """下载单个文件到 dest，已存在则跳过。
+
+    expected_md5 给定时校验内容一致性（booru 原图有效）。校验失败删除重下，
+    重试后仍失败返回 False，由调用方记为跳过。返回是否实际下载成功。
+    """
     if dest.exists():
         return False
-    resp = session.get(post["file_url"], timeout=120, stream=True)
-    resp.raise_for_status()
     tmp = dest.with_suffix(dest.suffix + ".part")
-    with tmp.open("wb") as f:
-        for chunk in resp.iter_content(chunk_size=1 << 16):
-            f.write(chunk)
-    tmp.rename(dest)
-    time.sleep(DOWNLOAD_DELAY)
-    return True
+    for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+        resp = session.get(url, timeout=120, stream=True)
+        resp.raise_for_status()
+        digest = hashlib.md5()
+        with tmp.open("wb") as f:
+            for chunk in resp.iter_content(chunk_size=1 << 16):
+                f.write(chunk)
+                digest.update(chunk)
+        if expected_md5 is None or digest.hexdigest() == expected_md5:
+            tmp.rename(dest)
+            time.sleep(DOWNLOAD_DELAY)
+            return True
+        tqdm.write(f"md5 校验失败（第 {attempt}/{DOWNLOAD_ATTEMPTS} 次）: {dest.name}")
+        tmp.unlink()
+    return False
 
 
 def count_existing(out_dir: Path, all_media: bool) -> int:
-    """统计输出目录中已下载的图片数（不含元数据文件和 .part 临时文件）。"""
+    """统计目录内已下载的图片数（不含元数据文件和 .part 临时文件）。"""
     if all_media:
         return sum(
             1
@@ -119,6 +162,18 @@ def count_existing(out_dir: Path, all_media: bool) -> int:
             if p.is_file() and p.name != "metadata.jsonl" and p.suffix != ".part"
         )
     return sum(1 for p in out_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS)
+
+
+def load_seen_md5(meta_path: Path) -> set[str]:
+    """读取已写入 metadata.jsonl 的 md5，续传时避免重复写。"""
+    seen: set[str] = set()
+    if meta_path.exists():
+        for line in meta_path.read_text(encoding="utf-8").splitlines():
+            try:
+                seen.add(json.loads(line)["md5"])
+            except (json.JSONDecodeError, KeyError):
+                continue
+    return seen
 
 
 def main() -> None:
@@ -134,11 +189,7 @@ def main() -> None:
     target = max(0, args.limit - existing)
 
     auth = (args.username, args.api_key) if args.username and args.api_key else None
-    session = requests.Session()
-    session.auth = auth
-    if args.proxy:
-        session.proxies = {"http": args.proxy, "https": args.proxy}
-    session.headers["User-Agent"] = "Hello-LoRA-dataset-collector/0.1"
+    session = build_session(args.proxy, auth)
 
     print(f"标签查询: {' '.join(tags)}")
     print(f"输出目录: {out_dir}")
@@ -146,14 +197,7 @@ def main() -> None:
     if auth is None and len(tags) > 2:
         print("警告: 匿名请求最多支持 2 个标签组合，多余标签可能被服务端拒绝。")
 
-    # 续传时避免向 metadata.jsonl 重复写入
-    seen_md5: set[str] = set()
-    if meta_path.exists():
-        for line in meta_path.read_text(encoding="utf-8").splitlines():
-            try:
-                seen_md5.add(json.loads(line)["md5"])
-            except (json.JSONDecodeError, KeyError):
-                continue
+    seen_md5 = load_seen_md5(meta_path)
 
     downloaded, skipped = 0, 0
     page = 1
@@ -188,15 +232,21 @@ def main() -> None:
                     continue
 
                 dest = out_dir / f"{md5}{ext}"
+                exists = dest.exists()
                 try:
-                    if download_file(session, post, dest):
-                        downloaded += 1
-                    else:
-                        skipped += 1
+                    ok = exists or download_file(
+                        session, file_url, dest, expected_md5=md5
+                    )
                 except requests.RequestException as e:
                     tqdm.write(f"下载失败 {md5}: {e}")
                     continue
-                bar.update(1)
+                if not ok:
+                    skipped += 1  # md5 校验重试后仍不匹配
+                    continue
+                if not exists:
+                    downloaded += 1
+                    bar.update(1)
+                # 已存在的文件若 metadata 缺失（如续传时清单丢失）也补录
                 if md5 not in seen_md5:
                     meta_file.write(json.dumps(post, ensure_ascii=False) + "\n")
                     seen_md5.add(md5)

@@ -1,5 +1,6 @@
 # Python-generated files
 __pycache__/
+.pytest_cache/
 *.py[oc]
 build/
 dist/
@@ -12,6 +13,8 @@ wheels/
 # Train
 assets/data/*
 !assets/data/.gitkeep
+assets/experiments/*
+!assets/experiments/.gitkeep
 assets/output/*
 !assets/output/.gitkeep
 assets/models/**

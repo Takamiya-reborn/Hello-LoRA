@@ -10,6 +10,7 @@ requires-python = ">=3.11,<3.13"
 dependencies = [
     "pillow",
     "opencv-python-headless",
+    "numpy",
     "polars",
     "duckdb",
     "imagehash",
@@ -34,6 +35,7 @@ inference = [
     "diffusers",
     "transformers",
     "accelerate",
+    "peft",
 ]
 
 [[tool.uv.index]]
