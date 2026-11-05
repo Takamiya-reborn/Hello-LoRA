@@ -10,8 +10,9 @@ uv sync --group inference
 uv run hello-lora eval <experiment>
 #    可选: --epochs 1-6,9 只评估部分 epoch, --dataset <dataset> 指定数据集
 #          （默认从 config.toml 的 train_data_dir 推断）, --prompts <file> 换提示词,
-#          --samples-per-prompt 3, --clip-model vit-l|vit-bigg,
-#          --resolution 768, --steps 30, --offload model|sequential|none,
+#          --samples-per-prompt 3（默认 1，加多张可让 diversity 指标更稳）,
+#          --clip-model vit-l|vit-bigg, --resolution 768, --steps 30,
+#          --offload model|sequential|none,
 #          --skip-generation 只重打分不出图, --force 已有样例也重新生成
 ```
 

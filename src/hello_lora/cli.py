@@ -25,8 +25,10 @@ from hello_lora.eval import (
     summarize_report,
 )
 from hello_lora.prepare import IMAGE_EXTS, prepare_dataset, summarize_dataset
+from hello_lora.profiles import get as profile_get, resolve_profile
 from hello_lora.scan import scan_directory, summarize
 from hello_lora.tag import (
+    BATCH_SIZE,
     CHARACTER_THRESHOLD,
     DEFAULT_MODEL,
     DEFAULT_PURPOSE,
@@ -81,6 +83,7 @@ def cmd_tag(args: argparse.Namespace) -> None:
     dataset_dir = resolve_dataset_dir(args.dataset)
     if not dataset_dir.is_dir():
         raise SystemExit(f"数据集目录不存在: {dataset_dir}")
+    _, profile = resolve_profile(args.profile)
     # --model 接受内置别名或任意 HF repo id（含 / 时视为 repo id）
     repo = MODEL_REPOS.get(args.model, args.model)
     manifest, skipped = tag_dataset(
@@ -89,7 +92,7 @@ def cmd_tag(args: argparse.Namespace) -> None:
         purpose=args.purpose,
         general_threshold=args.threshold,
         character_threshold=args.character_threshold,
-        batch_size=args.batch_size,
+        batch_size=args.batch_size or profile_get(profile, "tag.batch_size", BATCH_SIZE),
         overwrite=args.overwrite,
     )
     if skipped:
@@ -138,6 +141,11 @@ def cmd_eval(args: argparse.Namespace) -> None:
         experiment_dir = ASSETS_EXPERIMENTS / args.experiment
     if not experiment_dir.is_dir():
         raise SystemExit(f"实验目录不存在: {ASSETS_EXPERIMENTS / args.experiment}")
+    _, profile = resolve_profile(args.profile)
+    # CLI flag > profile > 代码内置默认
+    clip_alias = args.clip_model or profile_get(profile, "eval.clip_model", DEFAULT_CLIP)
+    resolution = args.resolution or profile_get(profile, "eval.resolution", DEFAULT_RESOLUTION)
+    offload = args.offload or profile_get(profile, "eval.offload", "sequential")
     dataset_dir = (
         resolve_dataset_dir(args.dataset)
         if args.dataset
@@ -153,13 +161,13 @@ def cmd_eval(args: argparse.Namespace) -> None:
         prompts_path=prompts_path,
         base_seed=args.base_seed,
         samples_per_prompt=args.samples_per_prompt,
-        clip_alias=args.clip_model,
-        resolution=args.resolution,
+        clip_alias=clip_alias,
+        resolution=resolution,
         steps=args.steps,
         guidance=args.guidance,
         device=args.device,
         dtype=args.dtype,
-        offload=args.offload,
+        offload=offload,
         generate_samples=not args.skip_generation,
         force=args.force,
     )
@@ -216,8 +224,13 @@ def build_parser() -> argparse.ArgumentParser:
     tag_parser.add_argument(
         "--batch-size",
         type=int,
-        default=8,
-        help="推理批大小（默认 8）",
+        default=None,
+        help="推理批大小（默认取 profile 的 tag.batch_size，再默认 8）",
+    )
+    tag_parser.add_argument(
+        "--profile",
+        default=None,
+        help="运行环境 profile 名（缺省按 .profiles/ 规则自动选择）",
     )
     tag_parser.add_argument(
         "--overwrite",
@@ -299,15 +312,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     eval_parser.add_argument(
         "--clip-model",
-        default=DEFAULT_CLIP,
+        default=None,
         choices=sorted(CLIP_REPOS),
-        help=f"打分用 CLIP 模型（默认 {DEFAULT_CLIP}）",
+        help=f"打分用 CLIP 模型（默认取 profile 的 eval.clip_model，再默认 {DEFAULT_CLIP}）",
     )
     eval_parser.add_argument(
         "--resolution",
         type=int,
-        default=DEFAULT_RESOLUTION,
-        help=f"样例生成边长（默认 {DEFAULT_RESOLUTION}；1024 更贴近训练但更慢）",
+        default=None,
+        help=f"样例生成边长（默认取 profile 的 eval.resolution，再默认 {DEFAULT_RESOLUTION}；"
+             "1024 更贴近训练但更慢）",
     )
     eval_parser.add_argument("--steps", type=int, default=DEFAULT_STEPS, help="采样步数")
     eval_parser.add_argument("--guidance", type=float, default=DEFAULT_GUIDANCE, help="CFG 引导系数")
@@ -317,10 +331,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     eval_parser.add_argument(
         "--offload",
-        default="sequential",
+        default=None,
         choices=["sequential", "model", "none"],
-        help="显存策略（默认 sequential 逐层 offload，6GB 卡实测最快；"
-             "model=手动分相、UNet 常驻，显存 ≥ 8GB 时用）",
+        help="显存策略（默认取 profile 的 eval.offload，再默认 sequential 逐层 offload，"
+             "6GB 卡实测最快；model=手动分相、UNet 常驻，显存 ≥ 8GB 时用）",
+    )
+    eval_parser.add_argument(
+        "--profile",
+        default=None,
+        help="运行环境 profile 名（缺省按 .profiles/ 规则自动选择）",
     )
     eval_parser.add_argument(
         "--skip-generation",

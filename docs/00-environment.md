@@ -15,6 +15,20 @@ uv sync --group inference
 torch 会按平台自动选源：Windows 走 cu128（PyPI torch 是 CPU 版），
 Linux / macOS 用 PyPI 默认源（自带 CUDA / MPS）。
 
+## 运行环境 profile（.profiles/）
+
+`hello-lora` 各命令与采集脚本的默认值来自 `.profiles/<名字>.toml`
+（gitignore，首次运行自动生成 `local` 模板，目录整体拷走即迁移）。
+选择顺序：`--profile` 指定 > 目录里只有一个 > 多个未指定时交互选择；
+CLI flag 永远覆盖 profile。
+
+| 键 | 用途 |
+| --- | --- |
+| `network.proxy` | 采集脚本代理（空 = 直连） |
+| `network.hf_endpoint` | HuggingFace 镜像（显式设置的环境变量优先） |
+| `tag.batch_size` | WD14 推理批大小 |
+| `eval.offload` / `eval.resolution` / `eval.clip_model` | 样例生成的显存策略 / 边长 / 打分模型 |
+
 ## 训练引擎（kohya sd-scripts）
 
 sd-scripts 用独立 venv，避免与主环境 torch 版本冲突：

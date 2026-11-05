@@ -1,5 +1,18 @@
 # 6. 训练（kohya sd-scripts）
 
+## 实验配置
+
+每个实验一个 `assets/experiments/<id>/config.toml`，手写即可（字段要点见下文）。
+熟悉 sd-scripts 的话，也可以用它自带的 `--output_config` 从命令行参数生成
+config 快照（写完即退出，再改再训）：
+
+```bash
+tools/sd-scripts/.venv/Scripts/python.exe tools/sd-scripts/train_network.py \
+    <参数...> --output_config "assets/experiments/<id>/config.toml"
+```
+
+## 运行训练
+
 ```bash
 tools/sd-scripts/.venv/Scripts/python.exe tools/sd-scripts/train_network.py \
     --config_file "assets/experiments/<id>/config.toml"
@@ -30,4 +43,4 @@ assets/experiments/<id>/
   已缓存，caption 顺序随机化无效），二选一时优先保 TE 缓存；
 - `save_every_n_epochs = 1`：逐 epoch 留 checkpoint，供第 8 步评估挑最佳。
 
-环境搭建见 [environment.md](environment.md)。
+环境搭建见 [00-environment.md](00-environment.md)。

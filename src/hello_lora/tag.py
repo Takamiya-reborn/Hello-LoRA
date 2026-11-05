@@ -23,7 +23,6 @@ from pathlib import Path
 import numpy as np
 import onnxruntime as ort
 import polars as pl
-from huggingface_hub import hf_hub_download
 from PIL import Image, ImageOps, UnidentifiedImageError
 from tqdm import tqdm
 
@@ -84,7 +83,14 @@ def default_model_dir() -> Path:
 
 
 def ensure_model(model_root: Path, repo: str) -> Path:
-    """返回模型目录；缺 model.onnx 或 selected_tags.csv 时从 HF 下载补齐。"""
+    """返回模型目录；缺 model.onnx 或 selected_tags.csv 时从 HF 下载补齐。
+
+    huggingface_hub 在此函数内才 import（而非模块顶层）：CLI 启动时先把
+    profile 的 [network] hf_endpoint 写进环境变量，这里的首个 HF 调用才能
+    走到镜像。
+    """
+    from huggingface_hub import hf_hub_download
+
     model_dir = model_root / repo.replace("/", "_")
     onnx_path = model_dir / "model.onnx"
     csv_path = model_dir / "selected_tags.csv"

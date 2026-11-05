@@ -1,6 +1,6 @@
 """从 Danbooru 批量下载指定标签或艺术家的图片到 assets/data/（用法见 README）。
 
-- 独立可执行，无本地模块依赖（仅 requests / tqdm）
+- 独立可执行（依赖 requests / tqdm / 本仓库 hello_lora 包，uv run 环境内可用）
 - 自动翻页，目录内图片总数不超过 --limit（已有图片计入，只补差额）
 - 已存在的文件按 md5 命名直接跳过，可断点续传
 - 下载完成后按 API 给出的 md5 校验内容，不一致自动重下一次，仍失败则跳过
@@ -22,6 +22,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from tqdm import tqdm
 from urllib3.util.retry import Retry
+
+from hello_lora.profiles import get as profiles_get, resolve_profile
 
 API_BASE = "https://danbooru.donmai.us"
 PAGE_SIZE = 200  # API 单页上限
@@ -73,9 +75,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--proxy",
         default=None,
-        help="HTTP 代理地址，例如 http://127.0.0.1:<port>（国内直连 Danbooru 超时时使用）",
+        help='HTTP 代理地址，例如 http://127.0.0.1:<port>（默认取 profile 的 network.proxy，'
+             '都没有则直连；"--proxy \\"\\"" 强制直连）',
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="运行环境 profile 名（缺省按 .profiles/ 规则自动选择）",
     )
     return parser.parse_args()
+
+
+def resolve_proxy(explicit: str | None, profile: dict) -> str | None:
+    """代理三级回退：显式 --proxy > profile [network].proxy > 直连；显式空串强制直连。"""
+    if explicit is not None:
+        return explicit or None
+    return profiles_get(profile, "network.proxy", None) or None
 
 
 def build_tags(args: argparse.Namespace) -> list[str]:
@@ -180,6 +195,7 @@ def main() -> None:
     # Windows GBK 控制台下避免中文输出乱码
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = parse_args()
+    _, profile = resolve_profile(args.profile)
     tags = build_tags(args)
     out_dir = args.out or RAW_DIR / "_".join(t.split(":")[-1] for t in tags)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -189,7 +205,7 @@ def main() -> None:
     target = max(0, args.limit - existing)
 
     auth = (args.username, args.api_key) if args.username and args.api_key else None
-    session = build_session(args.proxy, auth)
+    session = build_session(resolve_proxy(args.proxy, profile), auth)
 
     print(f"标签查询: {' '.join(tags)}")
     print(f"输出目录: {out_dir}")

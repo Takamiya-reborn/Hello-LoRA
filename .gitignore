@@ -10,6 +10,9 @@ wheels/
 # Virtual environments
 .venv
 
+# 运行环境 profile（每台机器一份，拷目录即迁移；模板内置于 hello_lora.profiles）
+.profiles/
+
 # Train
 assets/data/*
 !assets/data/.gitkeep

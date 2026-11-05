@@ -40,7 +40,7 @@
 | 4. 标注       | `uv run hello-lora tag <dataset>`                   | WD14 打标，生成同名 `.txt` caption                | [docs/04-tag.md](docs/04-tag.md)         |
 | 5. 数据集验证 | `uv run hello-lora prepare <dataset>`               | 生成 kohya 训练结构，可选切验证集                 | [docs/05-prepare.md](docs/05-prepare.md) |
 | 6. 训练       | sd-scripts（独立 venv）                             | 按实验 `config.toml` 训练                         | [docs/06-train.md](docs/06-train.md)     |
-| 7. 调参       | 复制 `config.toml` 起新实验                         | 🚧 规划中                                         | [docs/07-tune.md](docs/07-tune.md)       |
+| 7. 调参       | 复制 `config.toml` 起新实验                         | 一次只动一组变量，eval 报告横向对比               | [docs/07-tune.md](docs/07-tune.md)       |
 | 8. 评估       | `uv run hello-lora eval <experiment>`               | CLIP 指标判过拟合 / 欠拟合，推荐最佳 epoch        | [docs/08-eval.md](docs/08-eval.md)       |
 | 9. 导出       | 人工挑选                                            | 最优 checkpoint 拷入 `assets/output/`             | [docs/09-export.md](docs/09-export.md)   |
 
@@ -71,6 +71,8 @@ Hello-LoRA/
 ├─ docs/                    # 流水线各步骤详细文档
 ├─ scripts/                 # 可执行脚本
 ├─ src/hello_lora/          # Python 包
+├─ .profiles/               # 运行环境 profile（gitignore，首次运行命令自动生成，
+│                           #   一台机器一份，目录拷走即迁移）
 ├─ tests/
 └─ tools/sd-scripts/        # 训练引擎（git submodule）
 ```
@@ -88,7 +90,10 @@ uv sync
 默认组不含 torch。需要推理 / 评估时加装 `inference` 组（`uv sync --group inference`），
 torch 会按平台自动选源：Windows 走 cu128（PyPI torch 是 CPU 版），Linux / macOS 用 PyPI 默认源（自带 CUDA / MPS）。
 
-训练引擎 sd-scripts 用独立 venv，分平台安装步骤见 [docs/environment.md](docs/environment.md)。
+各命令与采集脚本的默认值来自运行环境 profile（`.profiles/<名字>.toml`，
+首次运行自动生成），见 [docs/00-environment.md](docs/00-environment.md)。
+
+训练引擎 sd-scripts 用独立 venv，分平台安装步骤见 [docs/00-environment.md](docs/00-environment.md)。
 
 ---
 
@@ -96,4 +101,4 @@ torch 会按平台自动选源：Windows 走 cu128（PyPI torch 是 CPU 版）�
 
 - [1. 图片采集](docs/01-collect.md) · [2. 清洗](docs/02-scan.md) · [3. 去重](docs/03-dedupe.md) · [4. 标注](docs/04-tag.md)
 - [5. 数据集验证](docs/05-prepare.md) · [6. 训练](docs/06-train.md) · [7. 调参](docs/07-tune.md) · [8. 评估](docs/08-eval.md) · [9. 导出](docs/09-export.md)
-- [环境搭建（含 sd-scripts 分平台安装）](docs/environment.md)
+- [环境搭建（含 sd-scripts 分平台安装）](docs/00-environment.md)

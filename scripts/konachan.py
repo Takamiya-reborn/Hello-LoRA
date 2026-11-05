@@ -1,6 +1,6 @@
 """从 Konachan 批量下载指定标签的图片到 assets/data/（用法见 README）。
 
-- 独立可执行，无本地模块依赖（仅 requests / tqdm）
+- 独立可执行（依赖 requests / tqdm / 本仓库 hello_lora 包，uv run 环境内可用）
 - 基于 Moebooru API（与 Danbooru API 兼容），默认走 konachan.net 镜像：
   konachan.com 的 API 目前被 Cloudflare 质询拦截，非浏览器客户端一律 403，
   而 konachan.net 是同一批帖子的 SFW 镜像（不含 explicit），脚本可正常访问
@@ -28,6 +28,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from tqdm import tqdm
 from urllib3.util.retry import Retry
+
+from hello_lora.profiles import get as profiles_get, resolve_profile
 
 MIRRORS = {
     "com": "https://konachan.com",  # 全量站，API 被 Cloudflare 拦截，暂不可用
@@ -83,10 +85,23 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--proxy",
-        default="http://127.0.0.1:7892",
-        help="HTTP 代理地址（国内直连 konachan 不通），传空字符串禁用",
+        default=None,
+        help='HTTP 代理地址（默认取 profile 的 network.proxy，都没有则直连；'
+             '"--proxy \\"\\"" 强制直连，"--proxy direct" 等价）',
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="运行环境 profile 名（缺省按 .profiles/ 规则自动选择）",
     )
     return parser.parse_args()
+
+
+def resolve_proxy(explicit: str | None, profile: dict) -> str | None:
+    """代理三级回退：显式 --proxy > profile [network].proxy > 直连；显式空串强制直连。"""
+    if explicit is not None:
+        return explicit or None
+    return profiles_get(profile, "network.proxy", None) or None
 
 
 def build_tags(args: argparse.Namespace) -> list[str]:
@@ -203,6 +218,7 @@ def main() -> None:
     # Windows GBK 控制台下避免中文输出乱码
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = parse_args()
+    _, profile = resolve_profile(args.profile)
     tags = build_tags(args)
     base = MIRRORS[args.mirror]
     out_dir = args.out or RAW_DIR / "_".join(t.split(":")[-1] for t in tags)
@@ -212,7 +228,7 @@ def main() -> None:
     existing = count_existing(out_dir, args.all_media)
     target = max(0, args.limit - existing)
 
-    session = build_session(args.proxy or None)
+    session = build_session(resolve_proxy(args.proxy, profile))
 
     print(f"镜像站: {base}")
     print(f"标签查询: {' '.join(tags)}")
